@@ -2,12 +2,48 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define MAX_TOKENS 20
 
 char* SHNAME = "mischell";
 
 char* tokens[MAX_TOKENS];
+
+int parse(int t){
+    bool in = false;
+    bool out = false;
+    char* input = NULL;
+    char* output = NULL;
+    int bg = 0;
+    if(*tokens[t] == '&'){
+        bg = 1;
+        t--;
+    }
+    if(*tokens[t] == '>'){
+        out = true;
+        output = (char*)calloc(256, sizeof(char));
+        strcpy(output, ++tokens[t]);
+        t--;
+    }
+    if(*tokens[t] == '<'){
+        in = true;
+        input = (char*)calloc(256, sizeof(char));
+        strcpy(input, ++tokens[t]);
+        t--;
+    }
+    if(in)
+        printf("Input redirect: '%s'\n", input);
+    if(out)
+        printf("Output redirect: '%s'\n", output);
+    if(bg)
+        printf("Background: %d\n", bg);
+
+    free(input);
+    free(output);
+
+    return t;
+}
 
 int tokenize(char *line, int size)
 {
@@ -45,7 +81,7 @@ int tokenize(char *line, int size)
         printf("Token %d: '%s'\n", i, tokens[i]);
     }
     
-    return ti;
+    return --ti;
 }
 
 int main()
@@ -60,11 +96,18 @@ int main()
         if(mode)
             printf(">%s ", SHNAME);
         int line_read = getline(&line, &line_size, stdin);
+
         if(line_read < 0)
             break;
+
         int t = tokenize(line, line_read);
+
+        int args = parse(t);
+
         free(line);
+    
     }
+    
 
     return 0;
 }
