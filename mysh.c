@@ -7,6 +7,7 @@
     #include <errno.h>
     #include <dirent.h>
     #include <sys/stat.h>
+    #include <fcntl.h>
 
     //DEFINES AND TYPEDEFS
     #define MAX_TOKENS 20
@@ -73,11 +74,6 @@
 
     void status()
     {
-        if(args > 0)
-        {
-            exit_status = 1;
-            return;
-        }
         printf("%d\n", exit_status);
     }
 
@@ -363,6 +359,253 @@
         exit_status = 0;
     }
 
+    void rename_cmd()
+    {
+        if(args == 2)
+        {
+            exit_status = rename(tokens[1], tokens[2]);
+            if(exit_status != 0)
+            {
+                exit_status = errno;
+                perror("rename");
+                return;
+            }
+        }
+        else
+            exit_status = 1;
+    }
+
+    void unlink_cmd()
+    {
+        if(args == 1)
+        {
+            exit_status = unlink(tokens[1]);
+            if(exit_status != 0)
+            {
+                exit_status = errno;
+                perror("unlink");
+                return;
+            }
+        }
+        else
+        {
+            exit_status = 1;
+        }
+        exit_status = 0;
+    }
+
+    void remove_cmd()
+    {
+        if(args < 1)
+        {
+            exit_status = 1;
+        }
+        else
+        {
+            for (int i = 1; i <= args; i++)
+            {
+                exit_status = remove(tokens[i]);
+                if(exit_status != 0)
+                {
+                    exit_status = errno;
+                    perror("remove");
+                    return;
+                } 
+            }
+            exit_status = 0;
+        }
+    }
+
+    void linkhard()
+    {
+        if(args == 2)
+        {
+            exit_status = link(tokens[1], tokens[2]);
+            if(exit_status != 0)
+            {
+                exit_status = errno;
+                perror("linkhard");
+                return;
+            }
+        }
+        else
+        {
+            exit_status = 1;
+        }
+    }
+
+    void linksoft()
+    {
+        if(args == 2)
+        {
+            exit_status = symlink(tokens[1], tokens[2]);
+            if(exit_status != 0)
+            {
+                exit_status = errno;
+                perror("linksoft");
+                return;
+            }
+        }
+        else
+        {
+            exit_status = 1;
+        }
+    }
+
+    void linkread()
+    {
+        char* path = (char*)calloc(256, sizeof(char));
+        if(args == 1)
+        {
+            int len = (int)readlink(tokens[1], path, 256- 1);
+            if(len != -1)
+            {
+                path[len] = '\0';
+                printf("%s\n", path);
+                exit_status = 0;
+            }
+            else
+            {
+                exit_status = errno;
+                perror("linkread");
+                free(path);
+                return;
+            }
+        }
+        else
+        {
+            exit_status = 1;
+        }
+        free(path);
+    }
+
+    void linklist()
+    {
+        DIR* d;
+        struct dirent* entry;
+        struct stat fstat;
+        struct stat tgtstat;
+
+        if (stat(tokens[1], &tgtstat) == -1) {
+            exit_status = errno;
+            perror("linklist");
+            return;
+        }
+
+        if(args == 1)
+            d = opendir(".");
+        else
+        {
+            exit_status = 1;
+            return;
+        }
+
+        if(d == NULL)
+        {
+            exit_status = errno;
+            perror("linklist");
+            return;
+        }
+        
+        int di = 0;
+        while((entry = readdir(d)) != NULL)
+        {
+            if(stat(entry->d_name, &fstat) != -1 && fstat.st_ino == tgtstat.st_ino)
+            {
+                if(di > 0)
+                    printf("  ");
+                printf("%s", entry->d_name);
+                di++;
+            }
+        }
+        printf("\n");
+
+        exit_status = closedir(d);
+        if(exit_status != 0)
+        {
+            exit_status = errno;
+            printf("dirls: %s\n", strerror(exit_status));
+            return;
+        }
+
+        exit_status = 0;
+    }
+
+    void cpcat()
+    {
+        fflush(stdout);
+        int in = 0;
+        int out = 1;
+        if(args > 2)
+        {
+            exit_status = 1;
+            return;
+        }
+        else if(args == 2)
+        {
+            if(strcmp(tokens[1], "-") != 0)
+            {
+                in = open(tokens[1], O_RDONLY);
+                if(in == -1)
+                {
+                    exit_status = errno;
+                    perror("cpcat");
+                    return;
+                }
+            } 
+            out = open(tokens[2], O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+            if(out == -1)
+                {
+                    exit_status = errno;
+                    perror("cpcat");
+                    if(in != 0)
+                        close(in);
+                    return;
+                }
+        }
+        else if(args == 1)
+        {
+            if(strcmp(tokens[1], "-") != 0)
+            {
+                in = open(tokens[1], O_RDONLY);
+                if(in == -1)
+                {
+                    exit_status = errno;
+                    perror("cpcat");
+                    return;
+                }
+            }
+        }
+
+        char* buff = (char*)calloc(4096, sizeof(char));
+        ssize_t rbytes, wbytes;
+
+        while( (rbytes = read(in, buff, 4096)) > 0)
+        {
+            wbytes = write(out, buff, rbytes);
+            if( wbytes != rbytes)
+            {
+                exit_status = errno;
+                perror("cpcat");
+                return;
+            }
+        }
+
+        if(rbytes == -1)
+        {
+            exit_status = errno;
+            perror("cpcat");
+            return;
+        }
+
+        if(in != 0)
+            close(in);
+        if(out != 1)
+            close(out);
+        free(buff);
+        exit_status = 0;
+    }
+
     
     //EXTERNAL COMMAND FUNCIONS
      
@@ -387,6 +630,14 @@
         {"dirmk", &dirmk, "dirmk opis"},
         {"dirrm", &dirrm, "dirrm opis"},
         {"dirls", &dirls, "dirls opis"},
+        {"rename", &rename_cmd, "rename opis"},
+        {"unlink", &unlink_cmd, "unlink opis"},
+        {"remove", &remove_cmd, "remove opis"},
+        {"linkhard", &linkhard, "linkhard opis"},
+        {"linksoft", &linksoft, "linksoft opis"},
+        {"linkread", &linkread, "linkread opis"},
+        {"linklist", &linklist, "linklist opis"},
+        {"cpcat", &cpcat, "cpcat opis"}
 
     };
 
@@ -574,7 +825,7 @@
 
                 find_builtin(lline, t, input, output);
             }
-
+            
             free(input);
             free(output);
             free(line);
