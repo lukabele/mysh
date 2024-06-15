@@ -4,6 +4,9 @@
     #include <stdbool.h>
     #include <string.h>
     #include <ctype.h>
+    #include <errno.h>
+    #include <dirent.h>
+    #include <sys/stat.h>
 
     //DEFINES AND TYPEDEFS
     #define MAX_TOKENS 20
@@ -23,9 +26,10 @@
     int debug_level = 0;
     char* tokens[MAX_TOKENS];
     int bg = 0;
+    int args = 0;
 
     //BUILT-IN COMMAND FUNCIONS
-    void debug(int args)
+    void debug()
     {
         if(args == 0)
         {
@@ -39,7 +43,7 @@
         exit_status = 0;
     }
 
-    void prompt(int args)
+    void prompt()
     {
         if(args == 0)
         {
@@ -67,7 +71,7 @@
         }
     }
 
-    void status(int args)
+    void status()
     {
         if(args > 0)
         {
@@ -77,7 +81,7 @@
         printf("%d\n", exit_status);
     }
 
-    void exit_cmd(int args)
+    void exit_cmd()
     {
         if(args == 0)
         {
@@ -87,7 +91,7 @@
         exit(exit_with);
     }
 
-    void help(int args)
+    void help()
     {
         if(args > 0)
         {
@@ -97,7 +101,7 @@
         printf("help\n");
     }
 
-    void print(int args)
+    void print()
     {
         for(int i = 1; i <= args; i++)
         {
@@ -108,7 +112,7 @@
         exit_status = 0;
     }
 
-    void echo(int args)
+    void echo()
     {
         for(int i = 1; i <= args; i++)
         {
@@ -120,7 +124,7 @@
         exit_status = 0;
     }
 
-    void len(int args)
+    void len()
     {
         int ln = 0;
         for(int i = 1; i <= args; i++){
@@ -130,7 +134,7 @@
         exit_status = 0;
     }
 
-    void sum(int args)
+    void sum()
     {
         int suma = 0;
         for(int i = 1; i <= args; i++){
@@ -140,7 +144,7 @@
         exit_status = 0;
     }
 
-    void calc(int args)
+    void calc()
     {
         int a1 = atoi(tokens[1]);
         int a2 = atoi(tokens[3]);
@@ -169,7 +173,7 @@
         }
     }
 
-    void basename(int args)
+    void basename()
     {
         if(args < 1)
         {
@@ -197,7 +201,7 @@
         exit_status = 0;
     }   
 
-    void dirname(int args)
+    void dirname()
     {
         if(args < 1)
         {
@@ -221,6 +225,145 @@
         exit_status = 0;
     }
 
+    void dirch()
+    {
+        if(args == 0)
+        {
+            exit_status = chdir("/");
+        }else if(args == 1){
+            exit_status = chdir(tokens[1]);
+        }
+        if(exit_status != 0)
+        {
+            exit_status = errno;
+            printf("dirch: %s\n", strerror(exit_status));
+        }    
+    }
+
+    void dirwd()
+    {
+        char* wd = (char *)calloc(1024, sizeof(char));
+        getcwd(wd, 1024);
+        if(wd == NULL)
+        {
+            exit_status = errno;
+            free(wd);
+            return;
+        }
+        else
+            exit_status = 0;
+        if(args < 1 || strcmp(tokens[1], "base") == 0)
+        {
+            char* r = wd;
+            char* s = wd;
+            char* d = NULL;
+            while(*r != '\0')
+            {
+                if(*r == '/')
+                    s = r;
+                if(*r == '.')
+                    d = r;
+                r++;
+            }
+            if(d != NULL)
+                *d = '\0';
+            if(strlen(wd) == 1)
+                printf("%s\n", s);
+            else
+                printf("%s\n", ++s);
+        }else if(strcmp(tokens[1], "full") == 0)
+        {
+            printf("%s\n", wd);
+        }else
+            exit_status = 1;
+        free(wd);
+    }
+
+    void dirmk()
+    {
+        if(args < 1)
+            exit_status = 1;
+        else
+        {
+            for (int i = 1; i <= args; i++)
+            {
+                exit_status = mkdir(tokens[i], 0777);
+                if(exit_status != 0)
+                {
+                    exit_status = errno;
+                    printf("dirmk: %s\n", strerror(exit_status));
+                    return;
+                } 
+            }
+            exit_status = 0;
+        }
+    }
+
+    void dirrm()
+    {
+        if(args < 1)
+            exit_status = 1;
+        else
+        {
+            for (int i = 1; i <= args; i++)
+            {
+                exit_status = rmdir(tokens[i]);
+                if(exit_status != 0)
+                {
+                    exit_status = errno;
+                    printf("dirrm: %s\n", strerror(exit_status));
+                    return;
+                } 
+            }
+            exit_status = 0;
+        }
+    }
+
+    void dirls()
+    {
+        DIR* d;
+        struct dirent* entry;
+        if(args == 0)
+            d = opendir(".");
+        else if (args == 1)
+        {
+            d = opendir(tokens[1]);
+        }
+        else
+        {
+            exit_status = 1;
+            return;
+        }
+
+        if(d == NULL)
+        {
+            exit_status = errno;
+            printf("dirls: %s\n", strerror(exit_status));
+            return;
+        }
+        
+        int di = 0;
+        while((entry = readdir(d)) != NULL)
+        {
+            if(di > 0)
+                printf("  ");
+            printf("%s", entry->d_name);
+            di++;
+        }
+        printf("\n");
+
+        exit_status = closedir(d);
+        if(exit_status != 0)
+        {
+            exit_status = errno;
+            printf("dirls: %s\n", strerror(exit_status));
+            return;
+        }
+
+        exit_status = 0;
+    }
+
+    
     //EXTERNAL COMMAND FUNCIONS
      
 
@@ -238,7 +381,13 @@
         {"sum", &sum, "sum opis"},
         {"calc", &calc, "help opis"},
         {"basename", &basename, "basename opis"},
-        {"dirname", &dirname, "dirname opis"}
+        {"dirname", &dirname, "dirname opis"},
+        {"dirch", &dirch, "dirch opis"},
+        {"dirwd", &dirwd, "dirwd opis"},
+        {"dirmk", &dirmk, "dirmk opis"},
+        {"dirrm", &dirrm, "dirrm opis"},
+        {"dirls", &dirls, "dirls opis"},
+
     };
 
     /*
@@ -261,7 +410,7 @@
             printf("Output redirect: '%s'\n", output);
     }
 
-    void execute_builtin(char* line, int t, int args, int ix, char* input, char* output)
+    void execute_builtin(char* line, int t, int ix, char* input, char* output)
     {
             if(debug_level > 0)
             {
@@ -271,7 +420,7 @@
             builtin_commands[ix].operation(args);
     }
 
-    void execute_external(char* line, int t, int args, char* input, char* output)
+    void execute_external(char* line, int t, char* input, char* output)
     {
         
         info_print(line, t, input, output);
@@ -286,18 +435,18 @@
         */
     }
 
-    void find_builtin(char* line, int t, int args, char* input, char* output)
+    void find_builtin(char* line, int t, char* input, char* output)
     {
         int builtin_size = (int)(sizeof(builtin_commands) / sizeof(builtin_commands[0]));
         for(int i = 0; i < builtin_size; i++)
         {
             if(strcmp(builtin_commands[i].name, tokens[0]) == 0)
             {
-                execute_builtin(line, t, args, i, input, output);
+                execute_builtin(line, t, i, input, output);
                 return;
             }
         }
-        execute_external(line, t, args, input, output);
+        execute_external(line, t, input, output);
     }
 
     //LINE TOKENIZATION
@@ -366,10 +515,12 @@
             size_t line_size = 0;
             char *line = NULL;
             bool blank = true;
+            bool comment = false;
 
             char* input = NULL;
             char* output = NULL;
             bg = 0;
+            args = 0;
 
             //INTERACTIVE MODE
             if(mode)
@@ -382,17 +533,23 @@
 
             for(int i = 0; i < line_read; i++)
             {
+                if(blank && line[i] == '#')
+                {
+                    comment == true;
+                    break;
+                }
                 if(!isspace(line[i])){
                     blank = false;
                     break;
                 }
+                
             }
             if(line_read <= 0)
                 break;
-            if(!blank)
+            if(!comment && !blank)
             {
                 int t = tokenize(line, line_read);
-                int args = t;
+                args = t;
 
                 //PARSING
                 if(*tokens[args] == '&')
@@ -415,7 +572,7 @@
                     args--;
                 }
 
-                find_builtin(lline, t, args, input, output);
+                find_builtin(lline, t, input, output);
             }
 
             free(input);
