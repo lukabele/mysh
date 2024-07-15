@@ -30,6 +30,16 @@ int debug_level = 0;
 char* tokens[MAX_TOKENS];
 int bg = 0;
 int args = 0;
+char procpath[2048] = "/proc";
+char procstatpath[4096];
+
+//OTHER FUNCTIONS
+int compareStringDigits(const void *a, const void *b)
+{
+    const char **aa = (const char **)a;
+    const char **bb = (const char **)b;
+    return strcmp(*aa, *bb);
+}
 
 //BUILT-IN COMMAND FUNCIONS
 void debug()
@@ -667,6 +677,197 @@ void sysinfo()
     exit_status = 0;
 }
 
+void proc()
+{
+    if(args > 1)
+    {
+        exit_status = 1;
+        return;
+    }
+    else if(args == 1)
+    {
+        exit_status = access(tokens[1], F_OK|R_OK);
+        if(exit_status != 0)
+        {
+            exit_status = 1;
+            return;
+        }
+        else
+        {
+            strncpy(procpath, tokens[1], sizeof(procpath));
+            procpath[sizeof(procpath) - 1] = '\0';
+        }
+    }   
+    else
+    {
+        printf("%s\n", procpath);
+        exit_status = 0;
+    }
+}
+
+void pids()
+{
+    struct dirent* entry;
+    DIR* d = opendir(procpath);
+    char** pids = NULL;
+    int np = 0;
+    
+    if(d == NULL)
+    {
+        exit_status = errno;
+        perror("pids");
+        return;
+    }
+
+    if(args != 0)
+    {
+        exit_status = 1;
+        return;
+    }
+
+    while((entry = readdir(d)) != NULL)
+    {
+        bool num = true;
+        if(isdigit(entry->d_name[0]))
+        {
+            int i = 1;
+            num = true;
+            while(entry->d_name[i] != '\0')
+            {
+                if(isdigit(entry->d_name[i]) == 0)
+                {
+                    num = false;
+                    break;
+                }
+                i++;
+            }
+            if(num)
+            {
+                pids = realloc(pids, sizeof(char *) * (np + 1));
+                if(pids == NULL)
+                {
+                    exit_status = errno;
+                    perror("pids");
+                    return;
+                }
+                pids[np] = strdup(entry->d_name);
+                if(pids[np] == NULL)
+                {
+                    exit_status = errno;
+                    perror("pids");
+                    return;
+                }
+                np++;
+            }
+        }   
+    }
+
+    qsort(pids, np, sizeof(char*), compareStringDigits);
+
+    exit_status = closedir(d);
+    if(exit_status != 0)
+    {
+        exit_status = errno;
+        printf("dirls: %s\n", strerror(exit_status));
+        return;
+    }
+
+    for (int i = 0; i < np; i++)
+    {
+        printf("%s\n", pids[i]);
+        free(pids[i]);
+    }
+    free(pids);
+    exit_status = 0;
+}
+
+void pinfo()
+{
+    struct dirent* entry;
+    DIR* d = opendir(procpath);
+    char** pids = NULL;
+    int np = 0;
+    if(d == NULL)
+    {
+        exit_status = errno;
+        perror("pids");
+        return;
+    }
+    if(args != 0)
+    {
+        exit_status = 1;
+        return;
+    }
+    while((entry = readdir(d)) != NULL)
+    {
+        bool num = true;
+        if(isdigit(entry->d_name[0]))
+        {
+            int i = 1;
+            num = true;
+            while(entry->d_name[i] != '\0')
+            {
+                if(isdigit(entry->d_name[i]) == 0)
+                {
+                    num = false;
+                    break;
+                }
+                i++;
+            }
+            if(num)
+            {
+                pids = realloc(pids, sizeof(char *) * (np + 1));
+                if(pids == NULL)
+                {
+                    exit_status = errno;
+                    perror("pids");
+                    return;
+                }
+                pids[np] = strdup(entry->d_name);
+                if(pids[np] == NULL)
+                {
+                    exit_status = errno;
+                    perror("pids");
+                    return;
+                }
+                np++;
+            }
+        }   
+    }
+    qsort(pids, np, sizeof(char*), compareStringDigits);
+    
+    exit_status = closedir(d);
+    if(exit_status != 0)
+    {
+        exit_status = errno;
+        printf("dirls: %s\n", strerror(exit_status));
+        return;
+    }
+
+    int pid;
+    int ppid;
+    char name[256];
+    char state;
+
+    printf("%5s %5s %6s %s\n", "PID", "PPID", "STANJE", "IME");
+    for (int i = 0; i < np; i++)
+    {
+        sprintf(procstatpath, "%s/%s/stat", procpath, pids[i]);
+        FILE *f = fopen(procstatpath, "r");
+        if(f == NULL)
+        {
+            exit_status = errno;
+            perror("pids");
+            return;
+        }
+        fscanf(f, "%d %255s %c %d", &pid, name, &state, &ppid);
+        name[strlen(name) - 1] = '\0';
+        printf("%5d %5d %6c %s\n", pid, ppid, state, &name[1]);
+        free(pids[i]);
+    }
+    free(pids);
+    exit_status = 0;
+}
 
 //EXTERNAL COMMAND FUNCIONS
     
@@ -705,7 +906,10 @@ cmd builtin_commands[] =
     {"euid", &euid, "euid opis"},
     {"gid", &gid, "gid opis"},
     {"egid", &egid, "egid opis"},
-    {"sysinfo", &sysinfo, "sysinfo opis"}
+    {"sysinfo", &sysinfo, "sysinfo opis"},
+    {"proc", &proc, "proc opis"},
+    {"pids", &pids, "pids opis"},
+    {"pinfo", &pinfo, "pinfo opis"}
 };
 
 /*
