@@ -993,6 +993,56 @@ void info_print(char* line, int t, char* input, char* output)
         printf("Output redirect: '%s'\n", output);
 }
 
+void redirect(const char* input, const char* output)
+{
+    if(input != NULL)
+    {
+        int infd = open(input, O_RDONLY);
+        if(infd < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+        if(dup2(infd, 0) < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+        if(close(infd) < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+    }
+
+    if(output != NULL)
+    {
+        fflush(stdout);
+        int outfd = open(output, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if(outfd < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+        if(dup2(outfd, 1) < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+        if(close(outfd) < 0)
+        {
+            exit_status = errno;
+            perror("redirect");
+            return;
+        }
+    }
+}
+
 void execute_builtin(char* line, int t, int ix, char* input, char* output)
 {
         if(debug_level > 0)
@@ -1005,6 +1055,7 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
         {
             fflush(stdin);
             fflush(stdout);
+            redirect(input, output);
             int pid = fork();
             if(pid < 0)
             {
@@ -1019,13 +1070,35 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
             }
         }
         else
+        {
+            int oldin, oldout;
+            if(input != NULL)
+                oldin = dup(0);
+            if(output != NULL)
+                oldout = dup(1);
+            redirect(input, output);
             builtin_commands[ix].operation(args);
+            if(input != NULL)
+            {
+                dup2(oldin, 0);
+                close(oldin);
+            }  
+            if(output != NULL)
+            {
+                fflush(stdout);
+                dup2(oldout, 1);
+                close(oldout);
+            }
+                
+        }
+            
 }
 
 void execute_external(char* line, int t, char* input, char* output)
 {
     fflush(stdin);
     fflush(stdout);
+    redirect(input, output);
     int pid = fork();
     if(pid < 0)
     {
@@ -1147,7 +1220,8 @@ int main()
     {
         fflush(stdout);
         
-        //signal(SIGCHLD, sigchld_handler);
+        int ogin = dup(0);
+        int ogout = dup(1);
 
         size_t line_size = 0;
         char *line = NULL;
@@ -1211,6 +1285,11 @@ int main()
 
             find_builtin(lline, t, input, output);
         }
+
+        dup2(ogin, 0);
+        dup2(ogout, 1);
+        close(ogin);
+        close(ogout);
         
         free(input);
         free(output);
