@@ -16,7 +16,11 @@
 //DEFINES AND TYPEDEFS
 #define MAX_TOKENS 20
 
-typedef void (*cmd_operation)(int);
+extern int tokenize(char ** tokens, char *line, int size);
+extern int find_builtin(char* line, int t, char* input, char* output);
+extern void execute_builtin(char*, int, int, char*, char*);
+
+typedef void (*cmd_operation)();
 
 typedef struct cmd_
 {
@@ -30,6 +34,8 @@ char SHNAME[9] = "mysh";
 int exit_status = 0;
 int debug_level = 0;
 char* tokens[MAX_TOKENS];
+char** ts = tokens;
+char* argnew[MAX_TOKENS];
 int bg = 0;
 int args = 0;
 char procpath[2048] = "/proc";
@@ -925,6 +931,63 @@ void waitall()
         exit_status = 1;
 }
 
+void pipes()
+{
+    
+    if(args >= 2)
+    {
+        fflush(stdin);
+        int fds[2 * (args-1)];
+        
+        for(int i = 0; i < args - 1; i++)
+            pipe(fds + i*2);
+        
+        for(int i = 0; i < args; i++) 
+        {
+            
+            if(!fork())
+            {
+                //CHILD
+                if(i != 0)
+                    dup2(fds[(i-1) * 2], 0);
+                if(i != args - 1)
+                    dup2(fds[i*2 + 1], 1);
+                for(int j = 0; j < 2*(args - 1); j++)
+                {
+                    close(fds[j]);
+                }
+
+                int len = strlen(tokens[i+1]);
+                char* line =(char*)calloc(len + 1, sizeof(char)); // Creates a string that is alreaddy NULL terminated
+                strcpy(line, tokens[i+1]);
+                args = tokenize(tokens, line, len + 1);
+                tokens[args + 1] = NULL;
+
+                int ix = find_builtin(line, args, NULL, NULL);
+
+                if(ix != -1)
+                    execute_builtin(line, args, ix, NULL, NULL);
+                else
+                    execvp(tokens[0], tokens);
+
+                free(line);
+                exit(exit_status);
+            }
+            
+        }
+        
+        //PARENT
+        for(int i = 0; i < 2*(args-1); i++)
+            close(fds[i]);
+        for(int i = 0; i < args; i++)
+            wait(NULL);
+        
+    }
+    else
+        exit_status = 1;
+    
+}
+
 //EXTERNAL COMMAND FUNCIONS
     
 
@@ -967,7 +1030,8 @@ cmd builtin_commands[] =
     {"pids", &pids, "pids opis"},
     {"pinfo", &pinfo, "pinfo opis"},
     {"waitone", &waitone, "waitone opis"},
-    {"waitall", &waitall, "waitall opis"}
+    {"waitall", &waitall, "waitall opis"},
+    {"pipes", &pipes, "pipes opis"}
 };
 
 
@@ -1066,7 +1130,7 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
             else if(pid == 0)
             {
                 //CHILD
-                builtin_commands[ix].operation(args);
+                builtin_commands[ix].operation();
             }
         }
         else
@@ -1077,7 +1141,7 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
             if(output != NULL)
                 oldout = dup(1);
             redirect(input, output);
-            builtin_commands[ix].operation(args);
+            builtin_commands[ix].operation();
             if(input != NULL)
             {
                 dup2(oldin, 0);
@@ -1109,13 +1173,13 @@ void execute_external(char* line, int t, char* input, char* output)
     else if(pid == 0)
     {
         //CHILD
-        char* argv[args + 2];
+        char* arge[args + 2];
         for(int i = 0; i <= args; i++)
         {
-            argv[i] = tokens[i];
+            arge[i] = tokens[i];
         }
-        argv[args + 1] = NULL;
-        execvp(tokens[0], argv);
+        arge[args + 1] = NULL;
+        execvp(tokens[0], tokens);
         perror("exec");
         exit(127);
     }
@@ -1139,22 +1203,21 @@ void execute_external(char* line, int t, char* input, char* output)
     }
 }
 
-void find_builtin(char* line, int t, char* input, char* output)
+int find_builtin(char* line, int t, char* input, char* output)
 {
     int builtin_size = (int)(sizeof(builtin_commands) / sizeof(builtin_commands[0]));
     for(int i = 0; i < builtin_size; i++)
     {
         if(strcmp(builtin_commands[i].name, tokens[0]) == 0)
         {
-            execute_builtin(line, t, i, input, output);
-            return;
+            return i;
         }
     }
-    execute_external(line, t, input, output);
+    return -1;
 }
 
 //LINE TOKENIZATION
-int tokenize(char *line, int size)
+int tokenize(char ** t, char *line, int size)
 {
     int ti = 0;
     bool word = false;
@@ -1170,6 +1233,7 @@ int tokenize(char *line, int size)
             if(c == '"')
             {
                 niz = false;
+
                 line[i] = '\0'; 
             }
         }
@@ -1195,24 +1259,24 @@ int tokenize(char *line, int size)
                     if(c == '"')
                     {
                         niz = true;
-                        tokens[ti++] = &line[++i];
+                        t[ti++] = &line[++i];
                     }
                     else
                     {
                         word = true;
-                        tokens[ti++] = &line[i];
+                        t[ti++] = &line[i];
                     }
                 }
             }
-        }
+        }   
     }    
     return --ti;
 }
 
 //MAIN
-int main()
+int main(int argc, char *argv[])
 {
-    int mode = isatty(STDIN_FILENO);
+    int mode = isatty(STDIN_FILENO); 
 
     signal(SIGCHLD, sigchld_handler);
     
@@ -1237,7 +1301,6 @@ int main()
         if(mode)
             printf(">%s ", SHNAME);
         int line_read = getline(&line, &line_size, stdin);
-        
         char* lline = (char*)calloc(strlen(line) + 1, sizeof(char));
         strcpy(lline, line);
         lline[line_read - 1] = '\0';
@@ -1259,7 +1322,7 @@ int main()
             break;
         if(!comment && !blank)
         {
-            int t = tokenize(line, line_read);
+            int t = tokenize(tokens, line, line_read);
             args = t;
 
             //PARSING
@@ -1283,7 +1346,11 @@ int main()
                 args--;
             }
 
-            find_builtin(lline, t, input, output);
+            int ix = find_builtin(lline, t, input, output);
+            if(ix == -1)
+                execute_external(line, t, input, output);
+            else
+                execute_builtin(line, t, ix, input, output);
         }
 
         dup2(ogin, 0);
