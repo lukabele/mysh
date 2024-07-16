@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 //DEFINES AND TYPEDEFS
 #define MAX_TOKENS 20
@@ -872,6 +873,58 @@ void pinfo()
     exit_status = 0;
 }
 
+void waitone()
+{
+
+    int status;
+    int pid;
+
+    if(args == 1)
+    {
+        int child = atoi(tokens[1]);
+        pid = waitpid(child, &status, 0);
+            if(WIFEXITED(status))
+                exit_status = WEXITSTATUS(status);
+        if(pid == -1)
+            exit_status = 0;
+    }
+    else if(args == 0)
+    {
+        pid = waitpid(-1, &status, 0);
+        if(pid > 0)
+        {
+            if(WIFEXITED(status))
+                exit_status = WEXITSTATUS(status);
+            else
+                exit_status = 127;
+        }
+        else if(pid == -1)
+            exit_status = 0;
+    }
+    else
+        exit_status = 1;
+}
+
+void waitall()
+{
+    int status;
+    int pid;
+
+    if(args == 0)
+    {
+        while((pid = waitpid(-1, &status, 0)) != -1)
+        {
+            if (WIFEXITED(status))
+                exit_status = WEXITSTATUS(status);   
+        }
+
+        if(errno == ECHILD)
+            exit_status = 0;
+    }
+    else
+        exit_status = 1;
+}
+
 //EXTERNAL COMMAND FUNCIONS
     
 
@@ -912,8 +965,21 @@ cmd builtin_commands[] =
     {"sysinfo", &sysinfo, "sysinfo opis"},
     {"proc", &proc, "proc opis"},
     {"pids", &pids, "pids opis"},
-    {"pinfo", &pinfo, "pinfo opis"}
+    {"pinfo", &pinfo, "pinfo opis"},
+    {"waitone", &waitone, "waitone opis"},
+    {"waitall", &waitall, "waitall opis"}
 };
+
+
+//SIGNAL HANDLERS
+void sigchld_handler(int signum) {
+    int pid, status, serrno;
+    serrno = errno;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+        if (WIFEXITED(status))
+            exit_status = WEXITSTATUS(status);
+    errno = serrno;
+}
 
 //COMMAND EVAL FUNCTIONS
 void info_print(char* line, int t, char* input, char* output)
@@ -934,12 +1000,32 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
             info_print(line, t, input, output);
             printf("Executing builtin '%s' in %s\n", tokens[0], (bg) ? "background" : "foreground");
         }
-        builtin_commands[ix].operation(args);
+
+        if(bg == 1)
+        {
+            fflush(stdin);
+            fflush(stdout);
+            int pid = fork();
+            if(pid < 0)
+            {
+                exit_status = errno;
+                perror("fork");
+                return;
+            }
+            else if(pid == 0)
+            {
+                //CHILD
+                builtin_commands[ix].operation(args);
+            }
+        }
+        else
+            builtin_commands[ix].operation(args);
 }
 
 void execute_external(char* line, int t, char* input, char* output)
 {
     fflush(stdin);
+    fflush(stdout);
     int pid = fork();
     if(pid < 0)
     {
@@ -1054,12 +1140,14 @@ int tokenize(char *line, int size)
 int main()
 {
     int mode = isatty(STDIN_FILENO);
+
+    signal(SIGCHLD, sigchld_handler);
     
     while(1)
     {
         fflush(stdout);
         
-        //signal(SIGCHLD, child_signal_handler);
+        //signal(SIGCHLD, sigchld_handler);
 
         size_t line_size = 0;
         char *line = NULL;
