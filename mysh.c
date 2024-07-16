@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 
 //DEFINES AND TYPEDEFS
 #define MAX_TOKENS 20
@@ -545,6 +546,7 @@ void linklist()
 
 void cpcat()
 {
+    fflush(stdout);
     int in = 0;
     int out = 1;
     if(args > 2)
@@ -834,6 +836,7 @@ void pinfo()
             }
         }   
     }
+
     qsort(pids, np, sizeof(char*), compareStringDigits);
     
     exit_status = closedir(d);
@@ -912,14 +915,6 @@ cmd builtin_commands[] =
     {"pinfo", &pinfo, "pinfo opis"}
 };
 
-/*
-//EXTERNAL COMMANDS ARRAY
-cmd external_commands[] = 
-{
-    
-};
-*/
-
 //COMMAND EVAL FUNCTIONS
 void info_print(char* line, int t, char* input, char* output)
 {
@@ -944,17 +939,45 @@ void execute_builtin(char* line, int t, int ix, char* input, char* output)
 
 void execute_external(char* line, int t, char* input, char* output)
 {
-    
-    info_print(line, t, input, output);
-    printf("External command '%s", tokens[0]);
-    for(int i = 1; i <= args; i++)
+    fflush(stdin);
+    int pid = fork();
+    if(pid < 0)
     {
-        printf(" %s", tokens[i]);
+        exit_status = errno;
+        perror("fork");
+        return;
     }
-    printf("'\n");
-    /*
-    external_commands[ix].operation(args);
-    */
+    else if(pid == 0)
+    {
+        //CHILD
+        char* argv[args + 2];
+        for(int i = 0; i <= args; i++)
+        {
+            argv[i] = tokens[i];
+        }
+        argv[args + 1] = NULL;
+        execvp(tokens[0], argv);
+        perror("exec");
+        exit(127);
+    }
+    else
+    {
+        //PARENT
+        if(bg == 0)
+        {
+            int status;
+            if(waitpid(pid, &status, 0) < 0)
+            {
+                exit_status = errno;
+                perror("waitpid");
+                return;
+            }
+            if(WIFEXITED(status))
+                exit_status = WEXITSTATUS(status);
+            else
+                exit_status = 127;
+        }
+    }
 }
 
 void find_builtin(char* line, int t, char* input, char* output)
@@ -1035,6 +1058,9 @@ int main()
     while(1)
     {
         fflush(stdout);
+        
+        //signal(SIGCHLD, child_signal_handler);
+
         size_t line_size = 0;
         char *line = NULL;
         bool blank = true;
